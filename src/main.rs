@@ -1,5 +1,7 @@
+mod leetcode;
+
 use clap::{Parser, Subcommand};
-use serde::{Deserialize, Serialize};
+use std::process::ExitCode;
 
 /// Simple CLI to interface with Leetcode
 #[derive(Parser, Debug)]
@@ -19,78 +21,34 @@ enum Commands {
     List,
 }
 
-#[derive(Serialize, Debug)]
-struct GraphQLRequest {
-    query: String,
-    variables: QuestionDetailVariables,
-    #[serde(rename = "operationName")]
-    operation_name: String,
-}
-
-#[derive(Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
-struct QuestionDetailVariables {
-    title_slug: String,
-}
-
-#[derive(Deserialize)]
-struct GraphQLResponse {
-    data: QuestionData,
-}
-
-#[derive(Deserialize)]
-struct QuestionData {
-    question: Question,
-}
-
-#[derive(Deserialize)]
-struct Question {
-    content: String,
-}
-
-fn download(id: u32) {
-    println!("Downloading {id} but really two-sum");
-
-    let client = reqwest::blocking::Client::new();
-
-    let new_post = GraphQLRequest {
-        query: String::from(
-            "query getQuestionDetail($titleSlug: String!) { question(titleSlug: $titleSlug) { content stats codeDefinition sampleTestCase exampleTestcases enableRunCode metaData translatedContent } }",
-        ),
-        variables: QuestionDetailVariables {
-            title_slug: String::from("two-sum"),
-        },
-        operation_name: String::from("getQuestionDetail"),
-    };
-    let res = client
-        .post("https://leetcode.com/graphql")
-        .json(&new_post)
-        .send();
-    if let Ok(res) = res {
-        if res.status().is_success() {
-            let response: GraphQLResponse = res.json().unwrap();
-            let content = response.data.question.content;
-            println!("{}", content);
-        }
-    }
-}
-
-fn main() {
+fn main() -> ExitCode {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Download { id }) => {
-            download(id);
-        }
+        Some(Commands::Download { id }) => match leetcode::download(id) {
+            Ok(question) => println!("{}", question.content),
+            Err(error) => {
+                eprintln!("Download failed: {error}");
+                return ExitCode::FAILURE;
+            }
+        },
         Some(Commands::Submit { id }) => {
             println!("Submitting {id}");
         }
-        Some(Commands::List) => {
-            println!("Available IDs:");
-            for i in 0..10 {
-                println!("ID: {i}");
+        Some(Commands::List) => match leetcode::get_all_questions() {
+            Ok(map) => {
+                let mut first_ten: Vec<_> = map.iter().collect();
+                first_ten.sort_by_key(|&(k, _)| k);
+                println!("First 10 problems:");
+                println!("{:#?}", &first_ten[..10.min(first_ten.len())]);
             }
-        }
+            Err(error) => {
+                eprintln!("Download failed: {error}");
+                return ExitCode::FAILURE;
+            }
+        },
         None => {}
     }
+
+    ExitCode::SUCCESS
 }
